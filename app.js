@@ -1,29 +1,16 @@
-/* =========================================================
-   ATCHABOYHOLLA Entertainment — app.js (single-scope)
-   - One Supabase client (sb)
-   - Auth (sign up / login / logout)
-   - Profiles (display_name + avatar_path)
-   - Avatar upload helpers (+ default avatar fallback)
-   - Reviews list shows username + avatar (with default)
-   - Public profile page (user.html?id=<uuid>)
-========================================================= */
 (() => {
   "use strict";
 
-  /* ===================== SUPABASE SETUP ===================== */
-  const SUPABASE_URL = "https://xfznhdxeifrtbcaagdoq.supabase.co";
+  const SUPABASE_URL = "https://knnroaedjbpydxdnfkkd.supabase.co";
   const SUPABASE_ANON_KEY =
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhmem5oZHhlaWZydGJjYWFnZG9xIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA3MzI2OTQsImV4cCI6MjA4NjMwODY5NH0.FqClkDemAvxhftotSrIf90xunRrECLC-leVP2-nQgug";
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtubnJvYWVkamJweWR4ZG5ma2tkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2NTcxMzQsImV4cCI6MjA5MTIzMzEzNH0.sE6LrLaF8ljbNkrvOX72HDDIVFv5p2MootgNS7RnlaU";
 
-  // Put your default avatar image here (add this file to /assets)
-  // Example: assets/default-avatar.png
   const DEFAULT_AVATAR_URL = "assets/default-avatar.png";
 
   const sb = window.supabase?.createClient
     ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
     : null;
 
-  /* ===================== SMALL HELPERS ===================== */
   const qs = (id) => document.getElementById(id);
   const currentPage = () => (location.pathname.split("/").pop() || "").toLowerCase();
 
@@ -53,9 +40,9 @@
     }
   };
 
-  /* ===================== NAV / UI BASICS ===================== */
   const menuBtn = qs("menuBtn");
   const nav = qs("nav");
+  const yearEl = qs("year");
 
   menuBtn?.addEventListener("click", () => {
     const open = nav?.classList.toggle("isOpen");
@@ -69,11 +56,8 @@
     });
   });
 
-  const yearEl = qs("year");
   if (yearEl) yearEl.textContent = String(new Date().getFullYear());
 
-  /* ===================== AUTH + PROFILE ===================== */
-  // Account page elements
   const authDisplay = qs("authDisplay");
   const authEmail = qs("authEmail");
   const authPass = qs("authPass");
@@ -82,10 +66,9 @@
   const btnLogout = qs("btnLogout");
   const authStatus = qs("authStatus");
 
-  // Header auth controls
   const navAuthLink = qs("navAuthLink");
   const navLogoutBtn = qs("navLogoutBtn");
-  const headerAvatar = qs("headerAvatar"); // <img id="headerAvatar" ...>
+  const headerAvatar = qs("headerAvatar");
 
   async function getSessionUser() {
     if (!sb) return null;
@@ -113,17 +96,20 @@
   async function ensureProfileRow(user) {
     if (!sb || !user?.id) return;
 
-    // If row exists, fill display_name if missing.
     const existing = await getProfile(user.id);
     const desired = (existing?.display_name || "").trim() || deriveDisplayNameFromUser(user);
 
-    const payload = {
-      id: user.id,
-      display_name: desired,
-    };
+    await sb.from("profiles").upsert(
+      { id: user.id, display_name: desired },
+      { onConflict: "id" }
+    );
+  }
 
-    // Upsert (works whether exists or not)
-    await sb.from("profiles").upsert(payload, { onConflict: "id" });
+  async function getAvatarPublicUrl(profile) {
+    const p = profile?.avatar_path;
+    if (!sb || !p) return null;
+    const { data } = sb.storage.from("avatars").getPublicUrl(p);
+    return data?.publicUrl || null;
   }
 
   async function setHeaderAuthUI() {
@@ -133,9 +119,7 @@
     if (navAuthLink) {
       const current = currentPage() || "index.html";
       navAuthLink.textContent = loggedIn ? "Account" : "Sign Up / Login";
-      navAuthLink.href = loggedIn
-        ? `account.html?redirect=${encodeURIComponent(current)}`
-        : `account.html?redirect=${encodeURIComponent(current)}`;
+      navAuthLink.href = `account.html?redirect=${encodeURIComponent(current)}`;
     }
 
     if (navLogoutBtn) navLogoutBtn.style.display = loggedIn ? "inline-flex" : "none";
@@ -144,6 +128,7 @@
   async function loadHeaderAvatar() {
     if (!headerAvatar) return;
     const user = await getSessionUser();
+
     if (!user) {
       headerAvatar.style.display = "none";
       headerAvatar.removeAttribute("src");
@@ -151,18 +136,18 @@
     }
 
     const prof = await getProfile(user.id);
-    const url = await getAvatarPublicUrl(prof);
+    const url = (await getAvatarPublicUrl(prof)) || DEFAULT_AVATAR_URL;
 
-    headerAvatar.src = url || DEFAULT_AVATAR_URL;
+    headerAvatar.src = url;
     headerAvatar.style.display = "inline-block";
     headerAvatar.alt = "Your avatar";
-    // Optional: click avatar to go to your public profile
     headerAvatar.style.cursor = "pointer";
-    headerAvatar.onclick = () => (window.location.href = `user.html?id=${encodeURIComponent(user.id)}`);
+    headerAvatar.onclick = () => {
+      window.location.href = `user.html?id=${encodeURIComponent(user.id)}`;
+    };
   }
 
   async function setAuthUI() {
-    // Only affects account.html if elements exist
     const user = await getSessionUser();
     const loggedIn = !!user;
 
@@ -170,7 +155,6 @@
     if (btnLogin) btnLogin.style.display = loggedIn ? "none" : "inline-flex";
     if (btnSignUp) btnSignUp.style.display = loggedIn ? "none" : "inline-flex";
 
-    // Hide inputs after login
     if (authDisplay) authDisplay.style.display = loggedIn ? "none" : "";
     if (authEmail) authEmail.style.display = loggedIn ? "none" : "";
     if (authPass) authPass.style.display = loggedIn ? "none" : "";
@@ -181,7 +165,7 @@
 
   btnSignUp?.addEventListener("click", async () => {
     try {
-      if (!sb) return (authStatus.textContent = "❌ Supabase not loaded. Check script order.");
+      if (!sb) return (authStatus.textContent = "❌ Supabase not loaded.");
 
       const display = authDisplay?.value?.trim();
       const email = authEmail?.value?.trim();
@@ -201,7 +185,6 @@
       if (error) return (authStatus.textContent = "❌ " + error.message);
 
       if (data?.user) {
-        // Make sure display_name is set (avoids NOT NULL failures later)
         await sb.from("profiles").upsert(
           { id: data.user.id, display_name: display },
           { onConflict: "id" }
@@ -209,19 +192,19 @@
       }
 
       authStatus.textContent =
-        "✅ Signed up! If email confirmation is ON in Supabase, check your inbox and confirm, then log in.";
+        "✅ Signed up! Check your email if confirmation is required.";
 
       await setAuthUI();
     } catch (err) {
       console.error(err);
-      if (authStatus) authStatus.textContent = "❌ Sign up crashed. Check console.";
+      if (authStatus) authStatus.textContent = "❌ Sign up crashed.";
     }
   });
 
   btnLogin?.addEventListener("click", async () => {
     try {
       if (!sb) {
-        authStatus.textContent = "❌ Supabase not loaded. Check script order in account.html.";
+        authStatus.textContent = "❌ Supabase not loaded.";
         return;
       }
 
@@ -241,30 +224,25 @@
       });
 
       if (error) {
-        console.error(error);
         authStatus.textContent = "❌ " + error.message;
         return;
       }
 
       const user = data?.user;
       if (!user) {
-        authStatus.textContent =
-          "⚠️ Login succeeded but no user returned. Check email confirmation settings.";
+        authStatus.textContent = "⚠️ Login succeeded but no user returned.";
         return;
       }
 
       await ensureProfileRow(user);
-
       authStatus.textContent = "✅ Logged in!";
-
       await setAuthUI();
 
-      // redirect if needed
       const redirect = new URLSearchParams(location.search).get("redirect");
       if (redirect) window.location.href = redirect;
     } catch (err) {
       console.error(err);
-      if (authStatus) authStatus.textContent = "❌ Login crashed. Check console.";
+      if (authStatus) authStatus.textContent = "❌ Login crashed.";
     }
   });
 
@@ -284,24 +262,11 @@
     window.location.href = "index.html";
   });
 
-  // Keep UI in sync
-  sb?.auth?.onAuthStateChange?.(async () => {
-    await setAuthUI();
-    await refreshReviews();
-  });
-
-  /* ===================== AVATAR HELPERS ===================== */
-  // REQUIREMENTS in Supabase:
-  // 1) Storage bucket named: avatars
-  // 2) Bucket set to Public OR you can keep private but then you'd need signed URLs.
-  // 3) profiles table has columns: id (uuid), display_name (text NOT NULL), avatar_path (text nullable)
-
   async function uploadAvatar(file) {
     if (!sb) throw new Error("Supabase not loaded.");
     const user = await getSessionUser();
     if (!user) throw new Error("Please log in first.");
 
-    // Make sure profile row exists & has display_name before we update avatar_path
     await ensureProfileRow(user);
 
     const ext = (file?.name || "").split(".").pop().toLowerCase() || "png";
@@ -326,23 +291,12 @@
     return path;
   }
 
-  async function getAvatarPublicUrl(profile) {
-    // profile can be null (no row yet)
-    const p = profile?.avatar_path;
-    if (!sb || !p) return null;
-
-    // If bucket is Public, publicUrl will work.
-    const { data } = sb.storage.from("avatars").getPublicUrl(p);
-    const url = data?.publicUrl;
-    return url || null;
-  }
-
   async function wireAvatarUploadOnAccountPage() {
     const fileInput = qs("avatarFile");
     const btnUpload = qs("btnUploadAvatar");
     const out = qs("avatarStatus");
 
-    if (!fileInput || !btnUpload) return; // page doesn't have upload UI
+    if (!fileInput || !btnUpload) return;
 
     btnUpload.addEventListener("click", async () => {
       try {
@@ -353,31 +307,26 @@
         out.textContent = "Uploading avatar…";
         await uploadAvatar(f);
         out.textContent = "✅ Avatar updated!";
-
         await loadHeaderAvatar();
       } catch (e) {
         console.error(e);
-        out.textContent = "❌ Avatar upload failed. Check console.";
+        out.textContent = "❌ Avatar upload failed.";
       }
     });
   }
 
-  /* ===================== REVIEWS (WATCH & RATE) ===================== */
   const ratingForm = qs("ratingForm");
   const wrTitle = qs("wrTitle");
-  const wrTypeEl = qs("wrType"); // can be <select> or hidden <input>
+  const wrTypeEl = qs("wrType");
   const wrReview = qs("wrReview");
   const wrStatus = qs("wrStatus");
-
   const starRow = qs("starRow");
   const wrSelected = qs("wrSelected");
-
   const wrAvg = qs("wrAvg");
   const wrAvgStars = qs("wrAvgStars");
   const wrCount = qs("wrCount");
   const wrList = qs("wrList");
   const wrTopList = qs("wrTopList");
-
   const wrSearch = qs("wrSearch");
   const wrSearchMeta = qs("wrSearchMeta");
   const wrMinRating = qs("wrMinRating");
@@ -385,7 +334,6 @@
 
   let filterType = null;
   if (wrTypeEl) {
-    // If it's a SELECT, treat as filter UI. If hidden INPUT, it's the locked type for that page.
     filterType = wrTypeEl.tagName.toUpperCase() === "SELECT" ? null : wrTypeEl.value;
   }
 
@@ -414,20 +362,21 @@
   async function fetchReviews() {
     if (!sb) return [];
 
-    // Base
     let q = sb
-      .from("reviews")
-      .select("id,user_id,title,type,rating,review,created_at")
+      .from("wrn_reviews")
+      .select("*")
       .order("created_at", { ascending: false })
       .limit(100);
 
     if (filterType) q = q.eq("type", filterType);
 
     const { data, error } = await q;
+
     if (error) {
       console.error(error);
       return [];
     }
+
     return data || [];
   }
 
@@ -478,14 +427,19 @@
       return tb - ta;
     });
 
-    if (wrSearchMeta) wrSearchMeta.textContent = out.length ? `${out.length} result(s)` : "0 results";
+    if (wrSearchMeta) {
+      wrSearchMeta.textContent = out.length ? `${out.length} result(s)` : "0 results";
+    }
+
     return out;
   }
 
   function renderStats(items) {
     if (!wrCount || !wrAvg || !wrAvgStars) return;
     wrCount.textContent = String(items.length);
-    const avg = items.length ? items.reduce((s, r) => s + Number(r.rating), 0) / items.length : 0;
+    const avg = items.length
+      ? items.reduce((s, r) => s + Number(r.rating), 0) / items.length
+      : 0;
     wrAvg.textContent = avg.toFixed(1);
     wrAvgStars.textContent = toStars(avg);
   }
@@ -535,64 +489,6 @@
 
     if (!items.length) {
       wrList.innerHTML = '<p class="muted">No ratings yet. Be the first to set the tone.</p>';
-// ================= REVIEW CARD WITH USERNAME + AVATAR =================
-
-async function renderReviews(reviews) {
-
-  const wrList = document.getElementById("wrList");
-  if (!wrList) return;
-
-  wrList.innerHTML = "";
-
-  for (const r of reviews) {
-
-    // Get profile info
-    let profile = null;
-
-    if (r.user_id) {
-      const { data } = await sb
-        .from("profiles")
-        .select("display_name, avatar_url")
-        .eq("id", r.user_id)
-        .single();
-
-      profile = data;
-    }
-
-    const displayName =
-      profile?.display_name ||
-      "Member";
-
-    const avatar =
-      profile?.avatar_url ||
-      "assets/default-avatar.png";
-
-    const card = document.createElement("div");
-    card.className = "wrItem";
-
-    card.innerHTML = `
-      <div style="display:flex; gap:12px; align-items:center; margin-bottom:8px;">
-        <img src="${avatar}"
-             style="width:36px;height:36px;border-radius:50%;object-fit:cover;">
-        <strong>${displayName}</strong>
-      </div>
-
-      <div class="wrTop">
-        <div class="wrTitle">${r.title}</div>
-        <div class="wrBadge">${r.type}</div>
-      </div>
-
-      <div class="wrRatingLine">
-        <strong>${Number(r.rating).toFixed(1)} / 5</strong>
-      </div>
-
-      <div class="wrReview">${r.review}</div>
-    `;
-
-    wrList.appendChild(card);
-  }
-}
-
       return;
     }
 
@@ -631,13 +527,10 @@ async function renderReviews(reviews) {
   }
 
   async function refreshReviews() {
-    // Only run on pages that have the review UI
     if (!wrList && !wrAvg && !wrCount && !wrTopList) return;
 
     const all = await fetchReviews();
     const filtered = applyFilters(all);
-
-    // pull usernames/avatars
     const profilesMap = await fetchProfilesMap(filtered.map((r) => r.user_id));
 
     renderStats(filtered);
@@ -659,17 +552,21 @@ async function renderReviews(reviews) {
 
       await ensureProfileRow(user);
 
-      if (selectedRating <= 0) return (wrStatus.textContent = "❗ Please select a rating (0.5 to 5.0).");
+      if (selectedRating <= 0) {
+        return (wrStatus.textContent = "❗ Please select a rating (0.5 to 5.0).");
+      }
 
       const title = wrTitle?.value?.trim();
       const review = wrReview?.value?.trim();
       const type = wrTypeEl?.value;
 
-      if (!title || !review || !type) return (wrStatus.textContent = "❗ Please enter a title and review.");
+      if (!title || !review || !type) {
+        return (wrStatus.textContent = "❗ Please enter a title and review.");
+      }
 
       wrStatus.textContent = "Posting…";
 
-      const { error } = await sb.from("reviews").insert({
+      const { error } = await sb.from("wrn_reviews").insert({
         user_id: user.id,
         title,
         type,
@@ -695,9 +592,7 @@ async function renderReviews(reviews) {
     }
   });
 
-  /* ===================== PUBLIC USER PAGE ===================== */
   async function loadUserPage() {
-    // Only run on user.html
     if (currentPage() !== "user.html") return;
     if (!sb) return;
 
@@ -726,7 +621,7 @@ async function renderReviews(reviews) {
     if (outList) {
       outList.innerHTML = "<p class='muted'>Loading…</p>";
       const { data, error } = await sb
-        .from("reviews")
+        .from("wrn_reviews")
         .select("id,title,type,rating,review,created_at")
         .eq("user_id", id)
         .order("created_at", { ascending: false })
@@ -765,7 +660,11 @@ async function renderReviews(reviews) {
     }
   }
 
-  /* ===================== BOOT ===================== */
+  sb?.auth?.onAuthStateChange?.(async () => {
+    await setAuthUI();
+    await refreshReviews();
+  });
+
   (async () => {
     await setAuthUI();
     await wireAvatarUploadOnAccountPage();
